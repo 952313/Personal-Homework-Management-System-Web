@@ -1,58 +1,222 @@
-from flask import Flask, render_template_string
+from flask import Flask, render_template, request, jsonify
+import json
 import os
+from datetime import datetime
+from threading import Lock
 
 app = Flask(__name__)
+app.secret_key = 'homework-platform-secret-key'
 
-# 极简HTML模板
-MINIMAL_HTML = '''
-<!DOCTYPE html>
-<html>
-<head>
-    <title>作业平台测试</title>
-    <style>
-        body { font-family: Arial; padding: 40px; }
-        .success { color: green; font-size: 24px; }
-    </style>
-</head>
-<body>
-    <h1>🚀 作业登记平台 - 测试页面</h1>
-    <p class="success">✅ Flask应用运行成功！</p>
-    <p>环境: {{ environment }}</p>
-    <p>时间: {{ timestamp }}</p>
-    <div id="status">正在检查API...</div>
+# 线程锁确保数据安全
+data_lock = Lock()
+
+class HomeworkManager:
+    def __init__(self):
+        self.data_file = "homework_data.json"
+        self.homeworks = []
+        self.load_data()
     
-    <script>
-        // 测试API连接
-        fetch('/api/health')
-            .then(response => response.json())
-            .then(data => {
-                document.getElementById('status').innerHTML = 
-                    '✅ API连接正常: ' + JSON.stringify(data);
-            })
-            .catch(error => {
-                document.getElementById('status').innerHTML = 
-                    '❌ API连接失败: ' + error;
-            });
-    </script>
-</body>
-</html>
-'''
+    def load_data(self):
+        """加载作业数据"""
+        try:
+            with data_lock:
+                if os.path.exists(self.data_file):
+                    with open(self.data_file, 'r', encoding='utf-8') as f:
+                        data = f.read().strip()
+                        if data:
+                            self.homeworks = json.loads(data)
+                        else:
+                            self.homeworks = []
+                else:
+                    self.homeworks = []
+                    # 创建初始数据文件
+                    self.save_data()
+            print(f"✅ 加载了 {len(self.homeworks)} 条作业记录")
+        except Exception as e:
+            print(f"❌ 加载数据错误: {e}")
+            self.homeworks = []
+    
+    def save_data(self):
+        """保存作业数据"""
+        try:
+            with data_lock:
+                with open(self.data_file, 'w', encoding='utf-8') as f:
+                    json.dump(self.homeworks, f, ensure_ascii=False, indent=2)
+                print("✅ 数据保存成功")
+                return True
+        except Exception as e:
+            print(f"❌ 保存数据错误: {e}")
+            return False
+    
+    def add_homework(self, code, subject, content, due_date):
+        """添加新作业"""
+        # 检查作业代号是否重复
+        for hw in self.homeworks:
+            if hw['code'] == code:
+                return False, "作业代号已存在"
+        
+        homework = {
+            'id': len(self.homeworks) + 1,
+            'code': code,
+            'subject': subject,
+            'content': content,
+            'create_date': datetime.now().strftime("%d/%m/%Y"),
+            'due_date': due_date,
+            'status': 'pending'
+        }
+        self.homeworks.append(homework)
+        success = self.save_data()
+        return success, "添加成功" if success else "保存失败"
+    
+    def delete_homework(self, homework_id):
+        """删除作业"""
+        try:
+            homework_id = int(homework_id)
+            original_count = len(self.homeworks)
+            self.homeworks = [hw for hw in self.homeworks if hw['id'] != homework_id]
+            if len(self.homeworks) < original_count:
+                return self.save_data()
+            return False
+        except:
+            return False
+    
+    def mark_completed(self, homework_id):
+        """标记为已完成"""
+        try:
+            homework_id = int(homework_id)
+            for hw in self.homeworks:
+                if hw['id'] == homework_id:
+                    hw['status'] = 'completed'
+                    break
+            return self.save_data()
+        except:
+            return False
+    
+    def get_homework_status(self, due_date_str):
+        """获取作业状态"""
+        try:
+            due_date = datetime.strptime(due_date_str, "%d/%m/%Y")
+            today = datetime.now().date()
+            due = due_date.date()
+            
+            if due < today:
+                return "overdue"
+            elif due == today:
+                return "due_today"
+            elif (due - today).days <= 3:  # 3天内截止
+                return "due_soon"
+            else:
+                return "pending"
+        except:
+            return "pending"
+
+# 创建全局管理器实例
+manager = HomeworkManager()
 
 @app.route('/')
-def home():
-    from datetime import datetime
-    return render_template_string(MINIMAL_HTML, 
-        environment=os.environ.get('VERCEL', 'local'),
-        timestamp=datetime.now().isoformat()
-    )
+def index():
+    """主页"""
+    return render_template('index.html')
 
-@app.route('/api/health')
-def health():
-    return {"status": "healthy", "service": "homework-platform"}
+@app.route('/api/homeworks', methods=['GET'])
+def get_homeworks():
+    """获取所有作业"""
+    try:
+        # 为每个作业计算状态
+        homeworks_with_status = []
+        for hw in manager.homeworks:
+            hw_copy = hw.copy()
+            if hw_copy.get('status') != 'completed':
+                hw_copy['display_status'] = manager.get_homework_status(hw_copy['due_date'])
+            else:
+                hw_copy['display_status'] = 'completed'
+            homeworks_with_status.append(hw_copy)
+        
+        return jsonify({
+            'success': True,
+            'homeworks': homeworks_with_status
+        })
+    except Exception as e:
+        print(f"API错误: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
 
-@app.route('/api/test')
-def test():
-    return {"message": "API测试成功", "data": [1, 2, 3]}
+@app.route('/api/add', methods=['POST'])
+def add_homework():
+    """添加新作业"""
+    try:
+        data = request.json
+        if not all([data.get('code'), data.get('subject'), data.get('content'), data.get('due_date')]):
+            return jsonify({'success': False, 'error': '请填写所有字段'})
+        
+        success, message = manager.add_homework(
+            data['code'],
+            data['subject'],
+            data['content'],
+            data['due_date']
+        )
+        
+        return jsonify({'success': success, 'message': message})
+            
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/delete/<homework_id>', methods=['POST'])
+def delete_homework(homework_id):
+    """删除作业"""
+    try:
+        success = manager.delete_homework(homework_id)
+        return jsonify({'success': success, 'message': '删除成功' if success else '删除失败'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/complete/<homework_id>', methods=['POST'])
+def complete_homework(homework_id):
+    """标记作业完成"""
+    try:
+        success = manager.mark_completed(homework_id)
+        return jsonify({'success': success, 'message': '标记成功' if success else '标记失败'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/stats')
+def get_stats():
+    """获取统计信息"""
+    try:
+        total = len(manager.homeworks)
+        completed = len([hw for hw in manager.homeworks if hw.get('status') == 'completed'])
+        pending = total - completed
+        
+        # 计算今天截止的作业
+        today_str = datetime.now().strftime("%d/%m/%Y")
+        due_today = len([hw for hw in manager.homeworks 
+                        if hw['due_date'] == today_str and hw.get('status') != 'completed'])
+        
+        return jsonify({
+            'success': True,
+            'stats': {
+                'total': total,
+                'completed': completed,
+                'pending': pending,
+                'due_today': due_today
+            }
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+# 健康检查端点
+@app.route('/health')
+def health_check():
+    return jsonify({
+        'status': 'healthy', 
+        'timestamp': datetime.now().isoformat(),
+        'homeworks_count': len(manager.homeworks)
+    })
 
 if __name__ == '__main__':
     app.run(debug=True)
+else:
+    # 对于Vercel环境
+    application = app
