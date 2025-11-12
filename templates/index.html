@@ -181,7 +181,7 @@
         
         .homework-header {
             display: flex;
-            justify-content: between;
+            justify-content: space-between;
             align-items: center;
             margin-bottom: 10px;
         }
@@ -268,7 +268,7 @@
     <div class="container">
         <div class="header">
             <h1>📚 作业登记平台</h1>
-            <p>学生自托管作业管理系统</p>
+            <p>学生自托管作业管理系统 - Vercel部署版</p>
         </div>
         
         <div class="stats" id="stats">
@@ -349,27 +349,14 @@
             }, 5000);
         }
         
-        // 获取作业状态
-        function getHomeworkStatus(dueDate) {
-            const today = new Date();
-            const due = new Date(dueDate.split('/').reverse().join('-'));
-            const diffTime = due - today;
-            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-            
-            if (diffDays < 0) return 'overdue';
-            if (diffDays === 0) return 'due-today';
-            if (diffDays <= 3) return 'due-soon';
-            return 'pending';
-        }
-        
         // 获取状态显示文本
         function getStatusText(status) {
             const statusMap = {
                 'pending': '进行中',
-                'overdue': '逾期',
-                'due-today': '今天截止',
-                'due-soon': '即将截止',
-                'completed': '已完成'
+                'overdue': '⚠️ 逾期',
+                'due-today': '🔥 今天截止',
+                'due-soon': '⏰ 即将截止',
+                'completed': '✅ 已完成'
             };
             return statusMap[status] || '未知';
         }
@@ -384,8 +371,8 @@
             }
             
             container.innerHTML = homeworks.map(hw => {
-                const status = hw.status === 'completed' ? 'completed' : getHomeworkStatus(hw.due_date);
-                const statusText = hw.status === 'completed' ? '已完成' : getStatusText(status);
+                const status = hw.display_status || 'pending';
+                const statusText = getStatusText(status);
                 
                 return `
                     <div class="homework-item ${status}">
@@ -403,11 +390,14 @@
                                 `<button class="btn btn-success" onclick="markCompleted(${hw.id})">
                                     ✅ 标记完成
                                 </button>` : 
-                                '<span class="status-badge status-completed">已完成</span>'
+                                '<span class="status-badge status-completed">✅ 已完成</span>'
                             }
                             <button class="btn btn-danger" onclick="deleteHomework(${hw.id})">
                                 🗑️ 删除
                             </button>
+                        </div>
+                        <div style="margin-top: 10px; font-size: 0.9em;">
+                            <span class="status-badge status-${status}">${statusText}</span>
                         </div>
                     </div>
                 `;
@@ -472,11 +462,11 @@
                 const data = await response.json();
                 
                 if (data.success) {
-                    showMessage('作业添加成功！');
+                    showMessage(data.message || '作业添加成功！');
                     event.target.reset();
                     loadHomeworks();
                 } else {
-                    showMessage('添加失败: ' + data.error, 'error');
+                    showMessage('添加失败: ' + (data.error || data.message), 'error');
                 }
             } catch (error) {
                 showMessage('网络错误: ' + error.message, 'error');
@@ -495,10 +485,10 @@
                 const data = await response.json();
                 
                 if (data.success) {
-                    showMessage('作业删除成功！');
+                    showMessage(data.message || '作业删除成功！');
                     loadHomeworks();
                 } else {
-                    showMessage('删除失败', 'error');
+                    showMessage('删除失败: ' + (data.error || data.message), 'error');
                 }
             } catch (error) {
                 showMessage('网络错误: ' + error.message, 'error');
@@ -515,10 +505,10 @@
                 const data = await response.json();
                 
                 if (data.success) {
-                    showMessage('作业标记为已完成！');
+                    showMessage(data.message || '作业标记为已完成！');
                     loadHomeworks();
                 } else {
-                    showMessage('操作失败', 'error');
+                    showMessage('操作失败: ' + (data.error || data.message), 'error');
                 }
             } catch (error) {
                 showMessage('网络错误: ' + error.message, 'error');
