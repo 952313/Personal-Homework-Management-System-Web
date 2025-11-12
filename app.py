@@ -1218,6 +1218,7 @@ def incomplete_homework(hw_id):
 
 @app.route('/api/delete/<int:hw_id>', methods=['POST'])
 def delete_homework(hw_id):
+    global homeworks
     """删除作业（带防滥用检查）"""
     try:
         user_id = get_user_id(request)
@@ -1244,7 +1245,6 @@ def delete_homework(hw_id):
                 return jsonify({'success': False, 'error': '作业不存在'})
             
             # 执行删除
-            global homeworks
             homeworks = [hw for hw in homeworks if hw['id'] != hw_id]
             
             # 同时删除所有用户的完成记录
