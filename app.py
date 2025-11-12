@@ -1,7 +1,7 @@
 from flask import Flask, render_template_string, request, jsonify, make_response
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 import threading
 import time
 import hashlib
@@ -81,12 +81,54 @@ def get_user_id(request):
     
     return user_id
 
-def get_completion_status(user_id, homework_id):
-    """获取用户的作业完成状态"""
-    return completions.get(user_id, {}).get(str(homework_id), {
-        'completed': False,
-        'completed_at': None
-    })
+def should_display_homework(hw, user_completion):
+    """判断是否应该显示这个作业"""
+    # 如果用户已经完成，不显示
+    if user_completion.get('completed', False):
+        return False
+    
+    # 检查截止日期
+    try:
+        due_date = datetime.strptime(hw['due_date'], "%d/%m/%Y")
+        today = datetime.now()
+        
+        # 如果逾期超过3天，不显示
+        if due_date.date() < today.date():
+            days_overdue = (today.date() - due_date.date()).days
+            if days_overdue > 3:
+                return False
+        
+        return True
+    except:
+        return True
+
+def get_filtered_homeworks(user_id, query_date=None, query_type=None):
+    """获取过滤后的作业列表"""
+    filtered_homeworks = []
+    
+    for hw in homeworks:
+        user_completion = completions.get(user_id, {}).get(str(hw['id']), {
+            'completed': False,
+            'completed_at': None
+        })
+        
+        # 如果指定了查询条件
+        if query_date and query_type:
+            try:
+                query_date_obj = datetime.strptime(query_date, "%d/%m/%Y")
+                hw_date_str = hw['due_date'] if query_type == 'due' else hw['create_date']
+                hw_date_obj = datetime.strptime(hw_date_str, "%d/%m/%Y")
+                
+                if hw_date_obj.date() == query_date_obj.date():
+                    filtered_homeworks.append((hw, user_completion))
+            except:
+                continue
+        else:
+            # 正常显示逻辑：未完成且未逾期超过3天
+            if should_display_homework(hw, user_completion):
+                filtered_homeworks.append((hw, user_completion))
+    
+    return filtered_homeworks
 
 # 启动时加载数据
 load_data()
@@ -173,8 +215,16 @@ HTML = '''
             border-radius: 10px;
         }
         
+        .query-section {
+            background: #fff3cd;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border-left: 4px solid #ffc107;
+        }
+        
         .form-group { margin: 15px 0; }
-        input, button { 
+        input, button, select { 
             width: 100%; 
             padding: 12px; 
             margin: 8px 0; 
@@ -182,7 +232,7 @@ HTML = '''
             border-radius: 8px;
             font-size: 16px;
         }
-        input:focus {
+        input:focus, select:focus {
             outline: none;
             border-color: #2196f3;
         }
@@ -200,6 +250,8 @@ HTML = '''
         }
         .btn-success { background: #4caf50; }
         .btn-success:hover { background: #45a049; }
+        .btn-warning { background: #ff9800; }
+        .btn-warning:hover { background: #e68900; }
         .btn-outline { 
             background: transparent; 
             border: 2px solid #2196f3;
@@ -267,43 +319,51 @@ HTML = '''
             border-radius: 15px;
             font-size: 0.8em;
             font-weight: bold;
-            margin-left: 10px;
         }
         .status-completed { background: #4caf50; color: white; }
         .status-pending { background: #ff9800; color: white; }
         .status-overdue { background: #f44336; color: white; }
+        .status-due-today { background: #ff9800; color: white; }
+        
+        .filter-info {
+            background: #e7f3ff;
+            padding: 10px 15px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            border-left: 4px solid #2196f3;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
             <h1>📚 作业登记平台 - 个人进度</h1>
-            <p>自动记录每个人的完成情况，无需登录</p>
+            <p>自动隐藏已完成和长期逾期作业 | 支持按日期查询</p>
         </div>
         
         <div class="user-info">
             <strong>👤 你的学习ID:</strong> <span id="userId">生成中...</span>
             <div style="font-size: 0.9em; color: #666; margin-top: 5px;">
-                基于浏览器自动生成，清除缓存会重置
+                已完成的作业和逾期超过3天的作业会自动隐藏
             </div>
         </div>
         
         <div class="stats" id="stats">
             <div class="stat-card">
                 <div class="stat-number total">0</div>
-                <div>总作业数</div>
+                <div>待完成作业</div>
             </div>
             <div class="stat-card">
                 <div class="stat-number my-completed">0</div>
                 <div>我已完成</div>
             </div>
             <div class="stat-card">
-                <div class="stat-number class-completed">0</div>
+                <div class="stat-number class-completed">0%</div>
                 <div>班级完成率</div>
             </div>
             <div class="stat-card">
                 <div class="stat-number my-pending">0</div>
-                <div>待完成</div>
+                <div>进行中</div>
             </div>
         </div>
         
@@ -318,9 +378,24 @@ HTML = '''
                     <input type="text" id="due_date" placeholder="截止日期 DD/MM/YYYY" required>
                     <button type="submit" class="btn">添加作业</button>
                 </form>
+                
+                <div class="query-section">
+                    <h4>🔍 按日期查询</h4>
+                    <input type="text" id="queryDate" placeholder="查询日期 DD/MM/YYYY" value="{{ today }}">
+                    <select id="queryType">
+                        <option value="due">按截止日期查询</option>
+                        <option value="create">按创建日期查询</option>
+                    </select>
+                    <button type="button" class="btn btn-warning" onclick="queryHomework()">查询作业</button>
+                    <button type="button" class="btn btn-outline" onclick="clearQuery()" style="margin-top: 10px;">显示所有待完成</button>
+                </div>
             </div>
             
             <div class="list-section">
+                <div id="filterInfo" class="filter-info" style="display: none;">
+                    <strong>📅 查询结果:</strong> <span id="queryResultText"></span>
+                    <button class="btn btn-outline" onclick="clearQuery()" style="width: auto; padding: 5px 10px; margin-left: 10px;">返回正常视图</button>
+                </div>
                 <h3>📋 作业列表 (<span id="count">0</span>)</h3>
                 <div id="homeworkList">加载中...</div>
             </div>
@@ -329,6 +404,12 @@ HTML = '''
 
     <script>
         let userId = null;
+        let currentQuery = null;
+        
+        // 获取今天日期
+        const today = new Date();
+        const todayFormatted = `${today.getDate().toString().padStart(2, '0')}/${(today.getMonth() + 1).toString().padStart(2, '0')}/${today.getFullYear()}`;
+        document.getElementById('queryDate').value = todayFormatted;
         
         // 获取用户ID
         async function getUserId() {
@@ -352,16 +433,12 @@ HTML = '''
             setTimeout(() => messageEl.style.display = 'none', 3000);
         }
         
-        function updateStats(homeworks, completionData) {
+        function updateStats(homeworks) {
             const total = homeworks.length;
-            const myCompleted = homeworks.filter(hw => 
-                completionData[hw.id]?.completed
-            ).length;
-            const classCompleted = homeworks.filter(hw => 
-                hw.completion_count > 0
-            ).length;
+            const myCompleted = homeworks.filter(hw => hw.my_completed).length;
+            const classCompletedCount = homeworks.filter(hw => hw.completion_count > 0).length;
+            const completionRate = total > 0 ? Math.round((classCompletedCount / total) * 100) : 0;
             const myPending = total - myCompleted;
-            const completionRate = total > 0 ? Math.round((classCompleted / total) * 100) : 0;
             
             document.querySelector('.stat-number.total').textContent = total;
             document.querySelector('.stat-number.my-completed').textContent = myCompleted;
@@ -369,8 +446,8 @@ HTML = '''
             document.querySelector('.stat-number.my-pending').textContent = myPending;
         }
         
-        function getStatusClass(hw, myCompletion) {
-            if (myCompletion?.completed) return 'completed';
+        function getStatusClass(hw) {
+            if (hw.my_completed) return 'completed';
             
             const dueDate = new Date(hw.due_date.split('/').reverse().join('-'));
             const today = new Date();
@@ -382,10 +459,9 @@ HTML = '''
             return '';
         }
         
-        function getStatusText(hw, myCompletion) {
-            if (myCompletion?.completed) {
-                const date = new Date(myCompletion.completed_at);
-                return `✅ 已完成 (${date.toLocaleDateString()})`;
+        function getStatusText(hw) {
+            if (hw.my_completed) {
+                return '✅ 已完成';
             }
             
             const dueDate = new Date(hw.due_date.split('/').reverse().join('-'));
@@ -399,16 +475,30 @@ HTML = '''
             return '📝 进行中';
         }
         
-        async function loadHomeworks() {
+        async function loadHomeworks(queryDate = null, queryType = null) {
             if (!userId) return;
             
             try {
-                const response = await fetch('/api/homeworks');
+                let url = '/api/homeworks';
+                if (queryDate && queryType) {
+                    url = `/api/query?date=${encodeURIComponent(queryDate)}&type=${queryType}`;
+                    currentQuery = { date: queryDate, type: queryType };
+                    
+                    // 显示查询信息
+                    document.getElementById('filterInfo').style.display = 'block';
+                    const queryText = queryType === 'due' ? '截止' : '创建';
+                    document.getElementById('queryResultText').textContent = `在 ${queryDate} ${queryText}的作业`;
+                } else {
+                    currentQuery = null;
+                    document.getElementById('filterInfo').style.display = 'none';
+                }
+                
+                const response = await fetch(url);
                 const data = await response.json();
                 
                 if (data.success) {
                     renderHomeworks(data.homeworks || []);
-                    updateStats(data.homeworks || [], data.completion_data || {});
+                    updateStats(data.homeworks || []);
                 }
             } catch (error) {
                 document.getElementById('homeworkList').innerHTML = '加载失败，请刷新页面';
@@ -422,14 +512,17 @@ HTML = '''
             countEl.textContent = homeworks.length;
             
             if (homeworks.length === 0) {
-                container.innerHTML = '<div style="text-align: center; padding: 40px; color: #666;">暂无作业，添加第一个作业吧！</div>';
+                if (currentQuery) {
+                    container.innerHTML = '<div style="text-align: center; padding: 40px; color: #666;">没有找到符合条件的作业</div>';
+                } else {
+                    container.innerHTML = '<div style="text-align: center; padding: 40px; color: #666;">🎉 太棒了！没有待完成的作业</div>';
+                }
                 return;
             }
             
             container.innerHTML = homeworks.map(hw => {
-                const myCompletion = hw.my_completion || {};
-                const statusClass = getStatusClass(hw, myCompletion);
-                const statusText = getStatusText(hw, myCompletion);
+                const statusClass = getStatusClass(hw);
+                const statusText = getStatusText(hw);
                 const completionCount = hw.completion_count || 0;
                 const totalUsers = hw.total_users || 1;
                 const completionRate = Math.round((completionCount / totalUsers) * 100);
@@ -450,11 +543,11 @@ HTML = '''
                         
                         <div class="completion-stats">
                             <span>📊 班级完成: ${completionRate}% (${completionCount}/${totalUsers}人)</span>
-                            <span>${statusText}</span>
+                            <span class="status-badge status-${statusClass.replace('due-today', 'due-today')}">${statusText}</span>
                         </div>
                         
                         <div style="display: flex; gap: 10px; margin-top: 15px;">
-                            ${!myCompletion.completed ? 
+                            ${!hw.my_completed ? 
                                 `<button class="btn btn-success" onclick="markCompleted(${hw.id})" style="flex: 2;">
                                     ✅ 标记为我已完成
                                 </button>` :
@@ -500,6 +593,23 @@ HTML = '''
             }
         }
         
+        async function queryHomework() {
+            const queryDate = document.getElementById('queryDate').value;
+            const queryType = document.getElementById('queryType').value;
+            
+            if (!queryDate) {
+                showMessage('请输入查询日期', 'error');
+                return;
+            }
+            
+            loadHomeworks(queryDate, queryType);
+        }
+        
+        function clearQuery() {
+            document.getElementById('queryDate').value = todayFormatted;
+            loadHomeworks();
+        }
+        
         async function markCompleted(homeworkId) {
             if (!userId) return;
             
@@ -511,7 +621,7 @@ HTML = '''
                 
                 if (data.success) {
                     showMessage('已标记为完成！');
-                    loadHomeworks();
+                    loadHomeworks(currentQuery?.date, currentQuery?.type);
                 } else {
                     showMessage('操作失败', 'error');
                 }
@@ -531,7 +641,7 @@ HTML = '''
                 
                 if (data.success) {
                     showMessage('已标记为未完成');
-                    loadHomeworks();
+                    loadHomeworks(currentQuery?.date, currentQuery?.type);
                 } else {
                     showMessage('操作失败', 'error');
                 }
@@ -551,7 +661,7 @@ HTML = '''
                 
                 if (data.success) {
                     showMessage('作业删除成功！');
-                    loadHomeworks();
+                    loadHomeworks(currentQuery?.date, currentQuery?.type);
                 } else {
                     showMessage('删除失败', 'error');
                 }
@@ -563,7 +673,11 @@ HTML = '''
         // 初始化
         getUserId().then(() => {
             loadHomeworks();
-            setInterval(loadHomeworks, 10000);
+            setInterval(() => {
+                if (!currentQuery) {
+                    loadHomeworks();
+                }
+            }, 15000);
         });
     </script>
 </body>
@@ -579,19 +693,20 @@ def get_user_id_endpoint():
     """获取用户ID"""
     user_id = get_user_id(request)
     response = make_response(jsonify({'success': True, 'user_id': user_id}))
-    response.set_cookie('user_id', user_id, max_age=365*24*60*60)  # 1年有效期
+    response.set_cookie('user_id', user_id, max_age=365*24*60*60)
     return response
 
 @app.route('/api/homeworks')
 def get_homeworks():
-    """获取作业列表和完成状态"""
+    """获取过滤后的作业列表（隐藏已完成和长期逾期）"""
     try:
         user_id = get_user_id(request)
         
         with data_lock:
-            # 计算每个作业的完成统计
+            filtered = get_filtered_homeworks(user_id)
             homework_data = []
-            for hw in homeworks:
+            
+            for hw, user_completion in filtered:
                 homework_dict = hw.copy()
                 
                 # 计算完成人数
@@ -602,29 +717,62 @@ def get_homeworks():
                 
                 homework_dict['completion_count'] = completion_count
                 homework_dict['total_users'] = len(completions) if completions else 1
-                
-                # 当前用户的完成状态
-                user_completion = completions.get(user_id, {}).get(str(hw['id']), {
-                    'completed': False,
-                    'completed_at': None
-                })
-                homework_dict['my_completion'] = user_completion
+                homework_dict['my_completed'] = user_completion['completed']
                 
                 homework_data.append(homework_dict)
             
-            # 当前用户的完成状态数据
-            user_completion_data = completions.get(user_id, {})
-            
             return jsonify({
                 'success': True,
-                'homeworks': homework_data,
-                'completion_data': user_completion_data
+                'homeworks': homework_data
             })
     except Exception as e:
         return jsonify({
             'success': False,
             'error': str(e)
         }), 500
+
+@app.route('/api/query')
+def query_homeworks():
+    """按日期查询作业"""
+    try:
+        user_id = get_user_id(request)
+        query_date = request.args.get('date')
+        query_type = request.args.get('type', 'due')
+        
+        if not query_date:
+            return jsonify({'success': False, 'error': '请提供查询日期'})
+        
+        with data_lock:
+            filtered = get_filtered_homeworks(user_id, query_date, query_type)
+            homework_data = []
+            
+            for hw, user_completion in filtered:
+                homework_dict = hw.copy()
+                
+                # 计算完成人数
+                completion_count = 0
+                for user_completions in completions.values():
+                    if str(hw['id']) in user_completions and user_completions[str(hw['id'])]['completed']:
+                        completion_count += 1
+                
+                homework_dict['completion_count'] = completion_count
+                homework_dict['total_users'] = len(completions) if completions else 1
+                homework_dict['my_completed'] = user_completion['completed']
+                
+                homework_data.append(homework_dict)
+            
+            return jsonify({
+                'success': True,
+                'homeworks': homework_data
+            })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+# 其他API路由保持不变（add, complete, incomplete, delete等）
+# 这里省略了其他路由的代码，保持与之前相同
 
 @app.route('/api/add', methods=['POST'])
 def add_homework():
@@ -665,7 +813,6 @@ def complete_homework(hw_id):
         user_id = get_user_id(request)
         
         with data_lock:
-            # 初始化用户完成记录
             if user_id not in completions:
                 completions[user_id] = {}
             
