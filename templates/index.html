@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>作业登记平台</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Microsoft YaHei', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #2c3e50, #34495e);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+        
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            padding: 20px;
+            background: #f8f9fa;
+        }
+        
+        .stat-card {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        
+        .stat-number {
+            font-size: 2em;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        
+        .total { color: #3498db; }
+        .completed { color: #27ae60; }
+        .pending { color: #e74c3c; }
+        .due-today { color: #f39c12; }
+        
+        .content {
+            display: grid;
+            grid-template-columns: 1fr 2fr;
+            gap: 20px;
+            padding: 30px;
+        }
+        
+        @media (max-width: 768px) {
+            .content {
+                grid-template-columns: 1fr;
+            }
+        }
+        
+        .form-section, .list-section {
+            background: #f8f9fa;
+            padding: 25px;
+            border-radius: 10px;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+        
+        input, select {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+        
+        input:focus, select:focus {
+            outline: none;
+            border-color: #3498db;
+        }
+        
+        .btn {
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 15px 25px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+            transition: all 0.3s;
+            width: 100%;
+        }
+        
+        .btn:hover {
+            background: #2980b9;
+            transform: translateY(-2px);
+        }
+        
+        .btn-danger {
+            background: #e74c3c;
+        }
+        
+        .btn-danger:hover {
+            background: #c0392b;
+        }
+        
+        .btn-success {
+            background: #27ae60;
+        }
+        
+        .btn-success:hover {
+            background: #219a52;
+        }
+        
+        .homework-list {
+            max-height: 600px;
+            overflow-y: auto;
+        }
+        
+        .homework-item {
+            background: white;
+            margin-bottom: 15px;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            border-left: 5px solid #3498db;
+        }
+        
+        .homework-item.overdue {
+            border-left-color: #e74c3c;
+            background: #ffeaea;
+        }
+        
+        .homework-item.due-today {
+            border-left-color: #f39c12;
+            background: #fff3cd;
+        }
+        
+        .homework-item.due-soon {
+            border-left-color: #f1c40f;
+            background: #fffbed;
+        }
+        
+        .homework-item.completed {
+            border-left-color: #27ae60;
+            background: #f0fff4;
+            opacity: 0.8;
+        }
+        
+        .homework-header {
+            display: flex;
+            justify-content: between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        
+        .homework-code {
+            font-weight: bold;
+            font-size: 1.2em;
+            color: #2c3e50;
+        }
+        
+        .homework-subject {
+            background: #3498db;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.9em;
+        }
+        
+        .homework-content {
+            margin: 10px 0;
+            line-height: 1.5;
+        }
+        
+        .homework-dates {
+            display: flex;
+            justify-content: space-between;
+            color: #7f8c8d;
+            font-size: 0.9em;
+            margin-bottom: 15px;
+        }
+        
+        .homework-actions {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .homework-actions button {
+            flex: 1;
+            padding: 8px 15px;
+            font-size: 14px;
+        }
+        
+        .status-badge {
+            padding: 4px 12px;
+            border-radius: 15px;
+            font-size: 0.8em;
+            font-weight: bold;
+            margin-left: 10px;
+        }
+        
+        .status-pending { background: #3498db; color: white; }
+        .status-overdue { background: #e74c3c; color: white; }
+        .status-due-today { background: #f39c12; color: white; }
+        .status-due-soon { background: #f1c40f; color: white; }
+        .status-completed { background: #27ae60; color: white; }
+        
+        .alert {
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 8px;
+            display: none;
+        }
+        
+        .alert-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        
+        .alert-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #7f8c8d;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📚 作业登记平台</h1>
+            <p>学生自托管作业管理系统</p>
+        </div>
+        
+        <div class="stats" id="stats">
+            <div class="stat-card">
+                <div class="stat-number total">0</div>
+                <div>总作业数</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number completed">0</div>
+                <div>已完成</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number pending">0</div>
+                <div>待完成</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number due-today">0</div>
+                <div>今天截止</div>
+            </div>
+        </div>
+        
+        <div class="content">
+            <div class="form-section">
+                <h2>添加新作业</h2>
+                <div class="alert" id="message"></div>
+                
+                <form id="homeworkForm">
+                    <div class="form-group">
+                        <label for="code">作业代号 *</label>
+                        <input type="text" id="code" name="code" required 
+                               placeholder="例如: MATH-HW-001">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="subject">科目 *</label>
+                        <input type="text" id="subject" name="subject" required 
+                               placeholder="例如: 数学">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="content">作业内容 *</label>
+                        <input type="text" id="content" name="content" required 
+                               placeholder="例如: 完成第1-10页习题">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="due_date">截止日期 *</label>
+                        <input type="text" id="due_date" name="due_date" required 
+                               placeholder="DD/MM/YYYY 格式，例如: 25/12/2024">
+                    </div>
+                    
+                    <button type="submit" class="btn">添加作业</button>
+                </form>
+            </div>
+            
+            <div class="list-section">
+                <h2>作业列表</h2>
+                <div class="homework-list" id="homeworkList">
+                    <div class="loading">加载中...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // API基础URL
+        const API_BASE = '/api';
+        
+        // 显示消息
+        function showMessage(message, type = 'success') {
+            const messageEl = document.getElementById('message');
+            messageEl.textContent = message;
+            messageEl.className = `alert alert-${type}`;
+            messageEl.style.display = 'block';
+            
+            setTimeout(() => {
+                messageEl.style.display = 'none';
+            }, 5000);
+        }
+        
+        // 获取作业状态
+        function getHomeworkStatus(dueDate) {
+            const today = new Date();
+            const due = new Date(dueDate.split('/').reverse().join('-'));
+            const diffTime = due - today;
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+            
+            if (diffDays < 0) return 'overdue';
+            if (diffDays === 0) return 'due-today';
+            if (diffDays <= 3) return 'due-soon';
+            return 'pending';
+        }
+        
+        // 获取状态显示文本
+        function getStatusText(status) {
+            const statusMap = {
+                'pending': '进行中',
+                'overdue': '逾期',
+                'due-today': '今天截止',
+                'due-soon': '即将截止',
+                'completed': '已完成'
+            };
+            return statusMap[status] || '未知';
+        }
+        
+        // 渲染作业列表
+        function renderHomeworkList(homeworks) {
+            const container = document.getElementById('homeworkList');
+            
+            if (!homeworks || homeworks.length === 0) {
+                container.innerHTML = '<div class="loading">暂无作业，请添加第一个作业！</div>';
+                return;
+            }
+            
+            container.innerHTML = homeworks.map(hw => {
+                const status = hw.status === 'completed' ? 'completed' : getHomeworkStatus(hw.due_date);
+                const statusText = hw.status === 'completed' ? '已完成' : getStatusText(status);
+                
+                return `
+                    <div class="homework-item ${status}">
+                        <div class="homework-header">
+                            <span class="homework-code">${hw.code}</span>
+                            <span class="homework-subject">${hw.subject}</span>
+                        </div>
+                        <div class="homework-content">${hw.content}</div>
+                        <div class="homework-dates">
+                            <span>创建: ${hw.create_date}</span>
+                            <span>截止: ${hw.due_date}</span>
+                        </div>
+                        <div class="homework-actions">
+                            ${hw.status !== 'completed' ? 
+                                `<button class="btn btn-success" onclick="markCompleted(${hw.id})">
+                                    ✅ 标记完成
+                                </button>` : 
+                                '<span class="status-badge status-completed">已完成</span>'
+                            }
+                            <button class="btn btn-danger" onclick="deleteHomework(${hw.id})">
+                                🗑️ 删除
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+        
+        // 加载作业列表
+        async function loadHomeworks() {
+            try {
+                const response = await fetch(`${API_BASE}/homeworks`);
+                const data = await response.json();
+                
+                if (data.success) {
+                    renderHomeworkList(data.homeworks);
+                    updateStats(data.homeworks);
+                } else {
+                    showMessage('加载作业失败: ' + data.error, 'error');
+                }
+            } catch (error) {
+                showMessage('网络错误: ' + error.message, 'error');
+            }
+        }
+        
+        // 更新统计信息
+        function updateStats(homeworks) {
+            const total = homeworks.length;
+            const completed = homeworks.filter(hw => hw.status === 'completed').length;
+            const pending = total - completed;
+            
+            const today = new Date().toLocaleDateString('en-GB');
+            const dueToday = homeworks.filter(hw => 
+                hw.due_date === today && hw.status !== 'completed'
+            ).length;
+            
+            document.querySelector('.stat-number.total').textContent = total;
+            document.querySelector('.stat-number.completed').textContent = completed;
+            document.querySelector('.stat-number.pending').textContent = pending;
+            document.querySelector('.stat-number.due-today').textContent = dueToday;
+        }
+        
+        // 添加作业
+        async function addHomework(event) {
+            event.preventDefault();
+            
+            const formData = new FormData(event.target);
+            const homework = {
+                code: formData.get('code'),
+                subject: formData.get('subject'),
+                content: formData.get('content'),
+                due_date: formData.get('due_date')
+            };
+            
+            try {
+                const response = await fetch(`${API_BASE}/add`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(homework)
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showMessage('作业添加成功！');
+                    event.target.reset();
+                    loadHomeworks();
+                } else {
+                    showMessage('添加失败: ' + data.error, 'error');
+                }
+            } catch (error) {
+                showMessage('网络错误: ' + error.message, 'error');
+            }
+        }
+        
+        // 删除作业
+        async function deleteHomework(id) {
+            if (!confirm('确定要删除这个作业吗？')) return;
+            
+            try {
+                const response = await fetch(`${API_BASE}/delete/${id}`, {
+                    method: 'POST'
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showMessage('作业删除成功！');
+                    loadHomeworks();
+                } else {
+                    showMessage('删除失败', 'error');
+                }
+            } catch (error) {
+                showMessage('网络错误: ' + error.message, 'error');
+            }
+        }
+        
+        // 标记完成
+        async function markCompleted(id) {
+            try {
+                const response = await fetch(`${API_BASE}/complete/${id}`, {
+                    method: 'POST'
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showMessage('作业标记为已完成！');
+                    loadHomeworks();
+                } else {
+                    showMessage('操作失败', 'error');
+                }
+            } catch (error) {
+                showMessage('网络错误: ' + error.message, 'error');
+            }
+        }
+        
+        // 初始化
+        document.getElementById('homeworkForm').addEventListener('submit', addHomework);
+        
+        // 页面加载时获取数据
+        document.addEventListener('DOMContentLoaded', loadHomeworks);
+        
+        // 每30秒自动刷新
+        setInterval(loadHomeworks, 30000);
+    </script>
+</body>
+</html>
